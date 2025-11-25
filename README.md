@@ -93,15 +93,14 @@ polygon-generator/
 │       ├── state.py              # State management
 │       ├── routing.py            # Conditional routing logic
 │       └── nodes/                # Workflow nodes
-│           ├── base.py           # Base node interface
-│           ├── intent_async.py   # Intent validation
-│           ├── parser_async.py   # Query parsing
-│           ├── geocoding.py      # Location geocoding
-│           ├── disambiguation_async.py  # AI result selection
-│           ├── boundaries.py     # OSM boundary fetching
-│           ├── buffers_async.py  # Buffer generation
-│           ├── validation_async.py      # Result validation
-│           └── merge.py          # Geometry merging
+│           ├── base.py                      # Base node interface
+│           ├── parse_and_validate_async.py  # Parse & validate (merged)
+│           ├── geocoding.py                 # Location geocoding
+│           ├── disambiguation_async.py      # AI result selection (parallel)
+│           ├── boundaries.py                # OSM boundary fetching
+│           ├── buffers_async.py             # Buffer generation (parallel)
+│           ├── validation_async.py          # Result validation
+│           └── merge.py                     # Geometry merging
 ├── pyproject.toml                # Poetry dependencies
 ├── .env.example                  # Environment variables template
 └── README.md                     # This file
@@ -111,16 +110,15 @@ polygon-generator/
 
 The system uses a LangGraph workflow with the following steps:
 
-1. **Validate Intent** - Check if query is about geographic polygons
-2. **Parse Query** - Extract locations, context (city/country), and language
-3. **Geocode Locations** - Search each location in Nominatim
-4. **Disambiguate** - AI selects best match from geocoding results
-5. **Fetch Boundaries** - Get OSM administrative boundaries
-6. **Suggest Buffers** - For locations without boundaries, AI suggests buffer radii
-7. **[User Input]** - User confirms/adjusts buffer radii (if needed)
-8. **Generate Buffers** - Create circular buffers around point locations
-9. **Validate Results** - Check geometry validity and provide warnings
-10. **Merge Geometries** - Combine all polygons into final result
+1. **Parse & Validate** - Extract locations and validate query (ONE API call)
+2. **Geocode Locations** - Search each location in Nominatim
+3. **Disambiguate** - AI selects best match from geocoding results (parallel)
+4. **Fetch Boundaries** - Get OSM administrative boundaries
+5. **Suggest Buffers** - For locations without boundaries, AI suggests buffer radii (parallel)
+6. **[User Input]** - User confirms/adjusts buffer radii (if needed)
+7. **Generate Buffers** - Create circular buffers around point locations
+8. **Validate Results** - Check geometry validity and provide warnings
+9. **Merge Geometries** - Combine all polygons into final result
 
 ## Usage Tips
 
@@ -164,10 +162,10 @@ Add your API key to `.env` file (see Installation step 4)
 
 ### Slow processing
 This is normal! AI + geocoding takes time:
-- Query parsing: 2-3 seconds
+- Query parsing & validation: 1 second (optimized - merged nodes)
 - Geocoding: 1 second per location (rate limit)
-- AI disambiguation: 2-3 seconds per location
-- **Total: 10-20 seconds for 3-5 locations**
+- AI disambiguation: 1 second (parallel processing)
+- **Total: ~4-6 seconds for 3-5 locations** (50% faster with async!)
 
 ## License
 
