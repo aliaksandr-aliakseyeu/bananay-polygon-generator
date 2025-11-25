@@ -9,9 +9,9 @@ from src.orchestrator.state import PolygonGeneratorState
 
 def should_continue_after_intent(
     state: PolygonGeneratorState,
-) -> Literal["parse_query", "end"]:
+) -> Literal["geocode_locations", "end"]:
     """
-    Route after intent validation
+    Route after parse and validate
 
     Args:
         state: Current workflow state
@@ -20,7 +20,7 @@ def should_continue_after_intent(
         Next node name or "end"
     """
     if state.get("is_polygon_request", False):
-        return "parse_query"
+        return "geocode_locations"
     else:
         return "end"
 

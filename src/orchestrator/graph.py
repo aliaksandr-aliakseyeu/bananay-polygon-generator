@@ -7,8 +7,7 @@ from langgraph.graph import StateGraph, END
 
 from src.orchestrator.state import PolygonGeneratorState
 from src.orchestrator.nodes import (
-    validate_intent_node,
-    parse_query_node,
+    parse_and_validate_node,
     geocode_locations_node,
     disambiguate_node,
     fetch_boundaries_node,
@@ -27,21 +26,20 @@ def create_polygon_graph():
         Compiled LangGraph workflow
 
     Graph structure:
-        1. Validate Intent -> (continue or end)
-        2. Parse Query
-        3. Geocode Locations
-        4. Disambiguate Results
-        5. Fetch Boundaries
-        6. Suggest Buffers
-        7. (Decision: needs user input? -> pause or continue)
-        8. [After user input] Generate Buffers
-        9. Validate Results
-        10. Merge Geometries
+        1. Parse & Validate (merged - ONE API call)
+        2. Geocode Locations
+        3. Disambiguate Results
+        4. Fetch Boundaries
+        5. Suggest Buffers
+        6. (Decision: needs user input? -> pause or continue)
+        7. [After user input] Generate Buffers
+        8. Validate Results
+        9. Merge Geometries
     """
     workflow = StateGraph(PolygonGeneratorState)
 
-    workflow.add_node("validate_intent", validate_intent_node)
-    workflow.add_node("parse_query", parse_query_node)
+    # Merged node: parse_and_validate (replaces validate_intent + parse_query)
+    workflow.add_node("parse_and_validate", parse_and_validate_node)
     workflow.add_node("geocode_locations", geocode_locations_node)
     workflow.add_node("disambiguate", disambiguate_node)
     workflow.add_node("fetch_boundaries", fetch_boundaries_node)
@@ -49,15 +47,14 @@ def create_polygon_graph():
     workflow.add_node("validate_results", validate_results_node)
     workflow.add_node("merge_geometries", merge_geometries_node)
 
-    workflow.set_entry_point("validate_intent")
+    workflow.set_entry_point("parse_and_validate")
 
+    # Conditional: After parsing and validation
     workflow.add_conditional_edges(
-        "validate_intent",
+        "parse_and_validate",
         should_continue_after_intent,
-        {"parse_query": "parse_query", "end": END},
+        {"geocode_locations": "geocode_locations", "end": END},
     )
-
-    workflow.add_edge("parse_query", "geocode_locations")
     workflow.add_edge("geocode_locations", "disambiguate")
     workflow.add_edge("disambiguate", "fetch_boundaries")
     workflow.add_edge("fetch_boundaries", "suggest_buffers")
