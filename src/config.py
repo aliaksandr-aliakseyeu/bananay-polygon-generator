@@ -5,7 +5,6 @@ Configuration management for the polygon generator
 import os
 from dotenv import load_dotenv
 
-# Load environment variables from .env file
 load_dotenv()
 
 
@@ -30,8 +29,24 @@ class Config:
     # Rate limiting
     NOMINATIM_DELAY: float = 1.0
 
+    # PostgreSQL Database Configuration (for authentication)
+    POSTGRES_HOST: str = os.getenv("POSTGRES_HOST", "localhost")
+    POSTGRES_PORT: str = os.getenv("POSTGRES_PORT", "5432")
+    POSTGRES_DB: str = os.getenv("POSTGRES_DB", "polygon_generator")
+    POSTGRES_USER: str = os.getenv("POSTGRES_USER", "postgres")
+    POSTGRES_PASSWORD: str = os.getenv("POSTGRES_PASSWORD", "")
+
     # Application settings
     DEBUG: bool = os.getenv("DEBUG", "False").lower() == "true"
+
+    @classmethod
+    def get_db_connection_string(cls) -> str:
+        """Get PostgreSQL connection string"""
+        return (
+            f"host={cls.POSTGRES_HOST} port={cls.POSTGRES_PORT} "
+            f"dbname={cls.POSTGRES_DB} user={cls.POSTGRES_USER} "
+            f"password={cls.POSTGRES_PASSWORD}"
+        )
 
     @classmethod
     def validate(cls) -> tuple[bool, list[str]]:
@@ -57,6 +72,12 @@ class Config:
         if not cls.OVERPASS_BASE_URL:
             errors.append("OVERPASS_BASE_URL must be set")
 
+        if not cls.POSTGRES_HOST:
+            errors.append("Warning: POSTGRES_HOST not set. Authentication will not work.")
+
+        if not cls.POSTGRES_DB:
+            errors.append("Warning: POSTGRES_DB not set. Authentication will not work.")
+
         is_valid = len([e for e in errors if not e.startswith("Warning:")]) == 0
 
         return is_valid, errors
@@ -69,6 +90,9 @@ class Config:
             "openai_key_set": bool(cls.OPENAI_API_KEY),
             "nominatim_url": cls.NOMINATIM_BASE_URL,
             "overpass_url": cls.OVERPASS_BASE_URL,
+            "postgres_host": cls.POSTGRES_HOST,
+            "postgres_db": cls.POSTGRES_DB,
+            "postgres_configured": bool(cls.POSTGRES_HOST and cls.POSTGRES_DB),
             "debug": cls.DEBUG,
         }
 

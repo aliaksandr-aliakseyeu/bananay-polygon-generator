@@ -12,6 +12,7 @@ from typing import Optional, List, Dict
 from src.config import config
 from src.orchestrator import process_query, resume_with_buffers
 from src.geometry import to_geojson, get_bounding_box
+from src.auth import authenticate_request, log_request, get_user_stats
 
 st.set_page_config(
     page_title="Polygon Generator",
@@ -48,6 +49,10 @@ def initialize_session_state():
         st.session_state.graph_state = None
     if "processing" not in st.session_state:
         st.session_state.processing = False
+    if "authenticated_user" not in st.session_state:
+        st.session_state.authenticated_user = None
+    if "api_key" not in st.session_state:
+        st.session_state.api_key = ""
 
 
 def render_header():
@@ -62,9 +67,72 @@ def render_header():
     )
 
 
+def render_auth_section():
+    """Render authentication section in sidebar"""
+    st.header("🔐 Authentication")
+
+    api_key_input = st.text_input(
+        "API Key",
+        type="password",
+        value=st.session_state.api_key,
+        placeholder="sk-polygon-...",
+        help="Enter your API key to use the service"
+    )
+
+    if api_key_input != st.session_state.api_key:
+        st.session_state.api_key = api_key_input
+        st.session_state.authenticated_user = None
+
+    if api_key_input:
+        is_auth, user_data, error_msg = authenticate_request(api_key_input)
+
+        if is_auth:
+            st.session_state.authenticated_user = user_data
+            st.success(f"✅ Authenticated as: **{user_data['username']}**")
+
+            col1, col2 = st.columns(2)
+            with col1:
+                st.metric(
+                    "Requests Used",
+                    f"{user_data['requests_used']}/{user_data['daily_limit']}",
+                    delta=f"-{user_data['requests_remaining']} left"
+                )
+            with col2:
+                progress = user_data['requests_used'] / user_data['daily_limit']
+                st.metric(
+                    "Usage",
+                    f"{progress * 100:.0f}%"
+                )
+
+            st.progress(progress)
+
+            try:
+                stats = get_user_stats(user_data['user_id'])
+                with st.expander("📊 Usage Statistics"):
+                    st.write(f"**Total requests (all time):** {stats['total_requests']}")
+                    st.write(f"**Requests today:** {stats['requests_today']}")
+                    st.write(f"**Last 24 hours:** {stats['requests_last_24h']}")
+                    if stats['last_request_time']:
+                        last_req = stats['last_request_time'].strftime('%Y-%m-%d %H:%M:%S')
+                        st.write(f"**Last request:** {last_req}")
+            except Exception:
+                pass
+
+        else:
+            st.session_state.authenticated_user = None
+            st.error(f"❌ {error_msg}")
+    else:
+        st.session_state.authenticated_user = None
+        st.warning("⚠️ Please enter your API key to use the service")
+
+    st.divider()
+
+
 def render_sidebar():
     """Render sidebar with info and settings"""
     with st.sidebar:
+        render_auth_section()
+
         st.header("ℹ️ About")
         st.markdown(
             """
@@ -227,12 +295,21 @@ def main():
     col1, col2, col3 = st.columns([2, 2, 1])
 
     with col1:
+        is_disabled = (
+            not user_query.strip() or
+            st.session_state.processing or
+            not st.session_state.authenticated_user
+        )
+
         process_button = st.button(
             "🚀 Generate Polygon",
             type="primary",
-            disabled=not user_query.strip() or st.session_state.processing,
+            disabled=is_disabled,
             use_container_width=True,
         )
+
+        if not st.session_state.authenticated_user and user_query.strip():
+            st.caption("⚠️ Please authenticate with your API key in the sidebar")
 
     with col2:
         if st.session_state.graph_state:
@@ -266,21 +343,38 @@ def main():
         """
         )
 
-    if process_button and user_query.strip():
+    if process_button and user_query.strip() and st.session_state.authenticated_user:
         st.divider()
         st.session_state.processing = True
+
+        user_data = st.session_state.authenticated_user
+        request_success = False
 
         with st.spinner("🤖 LangGraph is processing your query..."):
             try:
                 result = process_query(user_query)
                 st.session_state.graph_state = result
+                request_success = True
 
             except Exception as e:
                 st.error(f"❌ Error: {str(e)}")
                 if debug:
                     import traceback
                     st.code(traceback.format_exc())
+                request_success = False
                 st.session_state.processing = False
+
+            finally:
+                try:
+                    log_request(
+                        user_id=user_data['user_id'],
+                        query_text=user_query,
+                        success=request_success,
+                        ip_address=None
+                    )
+                except Exception as log_error:
+                    if debug:
+                        st.warning(f"Failed to log request: {log_error}")
 
         st.session_state.processing = False
         st.rerun()
@@ -398,6 +492,7 @@ def main():
                     try:
                         final_result = resume_with_buffers(state, buffer_decisions)
                         st.session_state.graph_state = final_result
+
                         st.rerun()
                     except Exception as e:
                         st.error(f"❌ Error: {str(e)}")
