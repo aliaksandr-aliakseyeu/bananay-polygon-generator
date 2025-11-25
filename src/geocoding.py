@@ -316,37 +316,3 @@ def reverse_geocode(lat: float, lon: float) -> Optional[GeocodingResult]:
     """
     client = NominatimClient()
     return client.reverse(lat, lon)
-
-
-if __name__ == "__main__":
-    print("Testing Geocoding Module")
-    print("=" * 60)
-
-    print("\n1. Searching for 'Minsk, Belarus'...")
-    results = geocode_location("Minsk, Belarus", limit=3)
-
-    if results:
-        print(f"   Found {len(results)} results:")
-        for i, result in enumerate(results, 1):
-            print(f"   {i}. {result}")
-            print(f"      Place ID: {result.place_id}")
-            print(f"      Importance: {result.importance}")
-            if result.has_polygon:
-                poly = result.get_polygon()
-                if poly:
-                    print(f"      Polygon area: {poly.area:.6f} sq degrees")
-    else:
-        print("   No results found")
-
-    print("\n2. Searching for 'Uruchye, Minsk'...")
-    results = geocode_location("Uruchye, Minsk, Belarus", limit=3)
-
-    if results:
-        print(f"   Found {len(results)} results:")
-        for i, result in enumerate(results, 1):
-            print(f"   {i}. {result}")
-    else:
-        print("   No results found")
-
-    print("\n" + "=" * 60)
-    print("Geocoding module test complete!")
