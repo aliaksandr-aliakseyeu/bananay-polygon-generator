@@ -7,7 +7,7 @@ ASYNC VERSIONS: Using async implementations for better performance
 
 # ASYNC versions (default - for best performance)
 from src.orchestrator.nodes.parse_and_validate_async import parse_and_validate_node
-from src.orchestrator.nodes.geocoding import geocode_locations_node
+from src.orchestrator.nodes.geocoding_async import geocode_locations_node
 from src.orchestrator.nodes.disambiguation_async import disambiguate_node
 from src.orchestrator.nodes.boundaries import fetch_boundaries_node
 from src.orchestrator.nodes.buffers_async import suggest_buffers_node, generate_buffers_node

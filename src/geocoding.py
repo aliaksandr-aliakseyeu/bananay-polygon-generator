@@ -3,9 +3,11 @@ Geocoding services using Nominatim and Overpass API (OpenStreetMap)
 """
 
 import time
+import asyncio
 from typing import Optional, List
-import requests
-from shapely.geometry import Point, Polygon, shape
+from threading import Lock
+import aiohttp
+from shapely.geometry import Polygon, shape
 from src.config import config
 
 
@@ -23,16 +25,6 @@ class GeocodingResult:
         self.importance = float(data.get("importance", 0))
         self.geojson = data.get("geojson")
         self.boundingbox = data.get("boundingbox")
-
-    @property
-    def coordinates(self) -> tuple[float, float]:
-        """Returns (lon, lat) tuple"""
-        return (self.lon, self.lat)
-
-    @property
-    def point(self) -> Point:
-        """Returns Shapely Point"""
-        return Point(self.lon, self.lat)
 
     @property
     def has_polygon(self) -> bool:
@@ -68,22 +60,35 @@ class GeocodingResult:
 
 
 class NominatimClient:
-    """Client for Nominatim geocoding API"""
+    """
+    Client for Nominatim geocoding API with global rate limiting
+
+    Uses class-level locks to ensure rate limits are respected across
+    all instances and concurrent users in the same process.
+    """
+
+    # Shared across ALL instances for proper multi-user rate limiting
+    _last_request_time = 0.0
+    _sync_lock = Lock()  # For thread-safe sync calls
+    _async_lock = asyncio.Lock()  # For async calls
 
     def __init__(self):
         self.base_url = config.NOMINATIM_BASE_URL
         self.user_agent = config.NOMINATIM_USER_AGENT
         self.delay = config.NOMINATIM_DELAY
-        self.last_request_time = 0
 
-    def _rate_limit(self):
-        """Enforce rate limiting (Nominatim policy: max 1 request per second)"""
-        elapsed = time.time() - self.last_request_time
-        if elapsed < self.delay:
-            time.sleep(self.delay - elapsed)
-        self.last_request_time = time.time()
+    async def _rate_limit_async(self):
+        """
+        Async rate limiting for concurrent requests
+        Ensures proper spacing across all users
+        """
+        async with NominatimClient._async_lock:
+            elapsed = time.time() - NominatimClient._last_request_time
+            if elapsed < self.delay:
+                await asyncio.sleep(self.delay - elapsed)
+            NominatimClient._last_request_time = time.time()
 
-    def search(
+    async def search_async(
         self,
         query: str,
         limit: int = 5,
@@ -91,7 +96,7 @@ class NominatimClient:
         polygon_geojson: bool = True,
     ) -> List[GeocodingResult]:
         """
-        Search for a location by name
+        Async search for a location by name with rate limiting
 
         Args:
             query: Location name to search for
@@ -102,7 +107,7 @@ class NominatimClient:
         Returns:
             List of GeocodingResult objects
         """
-        self._rate_limit()
+        await self._rate_limit_async()
 
         params = {
             "q": query,
@@ -118,178 +123,30 @@ class NominatimClient:
         headers = {"User-Agent": self.user_agent}
 
         try:
-            response = requests.get(
-                f"{self.base_url}/search", params=params, headers=headers, timeout=10
-            )
-            response.raise_for_status()
+            async with aiohttp.ClientSession() as session:
+                async with session.get(
+                    f"{self.base_url}/search",
+                    params=params,
+                    headers=headers,
+                    timeout=aiohttp.ClientTimeout(total=10)
+                ) as response:
+                    response.raise_for_status()
+                    data = await response.json()
+                    return [GeocodingResult(item) for item in data]
 
-            data = response.json()
-            return [GeocodingResult(item) for item in data]
-
-        except requests.exceptions.RequestException as e:
+        except aiohttp.ClientError as e:
             print(f"Nominatim API error: {e}")
             return []
-
-    def reverse(self, lat: float, lon: float) -> Optional[GeocodingResult]:
-        """
-        Reverse geocode coordinates to location
-
-        Args:
-            lat: Latitude
-            lon: Longitude
-
-        Returns:
-            GeocodingResult or None
-        """
-        self._rate_limit()
-
-        params = {
-            "lat": lat,
-            "lon": lon,
-            "format": "json",
-            "addressdetails": 1,
-            "polygon_geojson": 1,
-        }
-
-        headers = {"User-Agent": self.user_agent}
-
-        try:
-            response = requests.get(
-                f"{self.base_url}/reverse", params=params, headers=headers, timeout=10
-            )
-            response.raise_for_status()
-
-            data = response.json()
-            return GeocodingResult(data)
-
-        except requests.exceptions.RequestException as e:
-            print(f"Nominatim reverse API error: {e}")
-            return None
-
-    def lookup(self, osm_type: str, osm_id: int) -> Optional[GeocodingResult]:
-        """
-        Look up a specific OSM object
-
-        Args:
-            osm_type: Type of OSM object (node, way, relation)
-            osm_id: OSM ID
-
-        Returns:
-            GeocodingResult or None
-        """
-        self._rate_limit()
-
-        params = {
-            "osm_ids": f"{osm_type[0].upper()}{osm_id}",
-            "format": "json",
-            "addressdetails": 1,
-            "polygon_geojson": 1,
-        }
-
-        headers = {"User-Agent": self.user_agent}
-
-        try:
-            response = requests.get(
-                f"{self.base_url}/lookup", params=params, headers=headers, timeout=10
-            )
-            response.raise_for_status()
-
-            data = response.json()
-            if data:
-                return GeocodingResult(data[0])
-            return None
-
-        except requests.exceptions.RequestException as e:
-            print(f"Nominatim lookup API error: {e}")
-            return None
+        except asyncio.TimeoutError:
+            print(f"Nominatim API timeout for query: {query}")
+            return []
 
 
-class OverpassClient:
-    """Client for Overpass API (advanced OSM queries)"""
-
-    def __init__(self):
-        self.base_url = config.OVERPASS_BASE_URL
-
-    def query(self, overpass_query: str, timeout: int = 25) -> Optional[dict]:
-        """
-        Execute an Overpass QL query
-
-        Args:
-            overpass_query: Overpass QL query string
-            timeout: Query timeout in seconds
-
-        Returns:
-            JSON response or None
-        """
-        try:
-            response = requests.post(
-                self.base_url,
-                data={"data": overpass_query},
-                timeout=timeout + 5,
-            )
-            response.raise_for_status()
-            return response.json()
-
-        except requests.exceptions.RequestException as e:
-            print(f"Overpass API error: {e}")
-            return None
-
-    def get_boundary(
-        self, name: str, lat: float, lon: float, radius_m: int = 5000
-    ) -> Optional[dict]:
-        """
-        Get boundary polygon for a named area
-
-        Args:
-            name: Name of the area
-            lat: Approximate latitude
-            lon: Approximate longitude
-            radius_m: Search radius in meters
-
-        Returns:
-            GeoJSON dict or None
-        """
-        query = f"""
-        [out:json][timeout:25];
-        (
-          relation["name"="{name}"]["boundary"="administrative"](around:{radius_m},{lat},{lon});
-          way["name"="{name}"]["boundary"="administrative"](around:{radius_m},{lat},{lon});
-        );
-        out geom;
-        """
-
-        result = self.query(query)
-
-        if not result or not result.get("elements"):
-            return None
-
-        elements = result.get("elements", [])
-        if elements:
-            return self._convert_to_geojson(elements[0])
-
-        return None
-
-    def _convert_to_geojson(self, element: dict) -> Optional[dict]:
-        """Convert Overpass element to GeoJSON"""
-        if element.get("type") == "way" and element.get("geometry"):
-            coords = [[node["lon"], node["lat"]] for node in element["geometry"]]
-            if coords[0] != coords[-1]:
-                coords.append(coords[0])
-
-            return {
-                "type": "Polygon",
-                "coordinates": [coords]
-            }
-
-        return None
-
-
-# Convenience functions
-def geocode_location(
+async def geocode_location_async(
     query: str, limit: int = 5, country_codes: Optional[List[str]] = None
 ) -> List[GeocodingResult]:
     """
-    Geocode a location by name
+    Async geocode a location by name with global rate limiting
 
     Args:
         query: Location name
@@ -300,19 +157,4 @@ def geocode_location(
         List of results
     """
     client = NominatimClient()
-    return client.search(query, limit=limit, country_codes=country_codes)
-
-
-def reverse_geocode(lat: float, lon: float) -> Optional[GeocodingResult]:
-    """
-    Reverse geocode coordinates
-
-    Args:
-        lat: Latitude
-        lon: Longitude
-
-    Returns:
-        GeocodingResult or None
-    """
-    client = NominatimClient()
-    return client.reverse(lat, lon)
+    return await client.search_async(query, limit=limit, country_codes=country_codes)

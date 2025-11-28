@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """
 Generate API keys for initial users
 Creates 3 users with API keys for MVP
