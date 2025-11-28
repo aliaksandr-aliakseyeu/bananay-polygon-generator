@@ -7,6 +7,7 @@ import streamlit as st
 from streamlit_folium import st_folium
 import folium
 import json
+import asyncio
 from typing import Optional, List, Dict
 
 from src.config import config
@@ -352,7 +353,7 @@ def main():
 
         with st.spinner("🤖 LangGraph is processing your query..."):
             try:
-                result = process_query(user_query)
+                result = asyncio.run(process_query(user_query))
                 st.session_state.graph_state = result
                 request_success = True
 
@@ -490,7 +491,7 @@ def main():
             ):
                 with st.spinner("🔗 Generating final polygon..."):
                     try:
-                        final_result = resume_with_buffers(state, buffer_decisions)
+                        final_result = asyncio.run(resume_with_buffers(state, buffer_decisions))
                         st.session_state.graph_state = final_result
 
                         st.rerun()

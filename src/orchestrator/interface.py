@@ -10,9 +10,9 @@ from src.orchestrator.nodes.validation_async import validate_results_node
 from src.orchestrator.nodes.merge import merge_geometries_node
 
 
-def process_query(user_query: str) -> PolygonGeneratorState:
+async def process_query(user_query: str) -> PolygonGeneratorState:
     """
-    Process a natural language query (Phase 1)
+    Process a natural language query (Phase 1) - ASYNC
 
     This runs the LangGraph workflow until it either:
     - Completes successfully (returns final_polygon)
@@ -23,19 +23,19 @@ def process_query(user_query: str) -> PolygonGeneratorState:
         user_query: User's natural language query
 
     Returns:
-        State dict with workflow results
+        State object with workflow results
     """
     graph = get_graph()
     initial_state = create_initial_state(user_query)
-    result = graph.invoke(initial_state)
+    result = await graph.ainvoke(initial_state)
     return result
 
 
-def resume_with_buffers(
-    previous_state: PolygonGeneratorState, buffer_decisions: dict
+async def resume_with_buffers(
+    previous_state: PolygonGeneratorState, buffer_decisions: dict[str, float]
 ) -> PolygonGeneratorState:
     """
-    Resume processing after user provides buffer decisions (Phase 2)
+    Resume processing after user provides buffer decisions (Phase 2) - ASYNC
 
     This continues the workflow from where it paused, using the
     user-provided buffer radii to generate buffers and complete
@@ -47,19 +47,22 @@ def resume_with_buffers(
                          Example: {"location1": 1.5, "location2": 2.0}
 
     Returns:
-        State dict with final polygon
+        State object with final polygon
     """
-    resumed_state = dict(previous_state)
-    resumed_state["buffer_decisions"] = buffer_decisions
-    resumed_state["needs_user_input"] = False
+    resumed_state = previous_state.model_copy(deep=True)
+    resumed_state.buffer_decisions = buffer_decisions
+    resumed_state.needs_user_input = False
 
     updates = generate_buffers_node(resumed_state)
-    resumed_state.update(updates)
+    for key, value in updates.items():
+        setattr(resumed_state, key, value)
 
-    updates = validate_results_node(resumed_state)
-    resumed_state.update(updates)
+    updates = await validate_results_node(resumed_state)
+    for key, value in updates.items():
+        setattr(resumed_state, key, value)
 
     updates = merge_geometries_node(resumed_state)
-    resumed_state.update(updates)
+    for key, value in updates.items():
+        setattr(resumed_state, key, value)
 
     return resumed_state

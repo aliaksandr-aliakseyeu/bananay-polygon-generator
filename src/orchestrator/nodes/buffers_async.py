@@ -2,9 +2,10 @@
 Async Buffer operations nodes
 Suggest and generate buffers
 Processes multiple locations in parallel
+
+LangGraph 1.0: Native async support - no sync wrapper needed
 """
 
-import asyncio
 from src.orchestrator.state import PolygonGeneratorState
 from src.llm_agents_async import create_async_agents
 from src.geometry import buffer_point
@@ -21,10 +22,10 @@ def _get_async_agents():
     return _agents_cache
 
 
-async def suggest_buffers_async(state: PolygonGeneratorState) -> dict:
+async def suggest_buffers_node(state: PolygonGeneratorState) -> dict:
     """
-    Use LLM to suggest buffer radii for points without polygons
-    ASYNC VERSION - processes all locations in parallel
+    Use LLM to suggest buffer radii for points without polygons (ASYNC)
+    Processes all locations in parallel
 
     Args:
         state: Current workflow state
@@ -34,8 +35,8 @@ async def suggest_buffers_async(state: PolygonGeneratorState) -> dict:
     """
     print("Node: Suggesting buffer radii (async)...")
 
-    locations_with_points = state["locations_with_points"]
-    context = state["context"]
+    locations_with_points = state.locations_with_points
+    context = state.context
     _, _, _, buffer_agent = _get_async_agents()
 
     if not locations_with_points:
@@ -59,13 +60,13 @@ async def suggest_buffers_async(state: PolygonGeneratorState) -> dict:
         for (name, _, _), radius in zip(location_data, radii):
             if isinstance(radius, Exception):
                 suggested_buffers[name] = 1.0
-                print(f"  ⚠️ {name}: Fallback to 1.0 km (error)")
+                print(f"  [!] {name}: Fallback to 1.0 km (error)")
             else:
                 suggested_buffers[name] = radius
-                print(f"  💡 {name}: Suggested {radius} km")
+                print(f"  [i] {name}: Suggested {radius} km")
 
     except Exception as e:
-        print(f"  ⚠️ Batch processing failed: {e}")
+        print(f"  [!] Batch processing failed: {e}")
         suggested_buffers = {
             loc_data["name"]: 1.0
             for loc_data in locations_with_points
@@ -80,15 +81,10 @@ async def suggest_buffers_async(state: PolygonGeneratorState) -> dict:
     }
 
 
-def suggest_buffers_node(state: PolygonGeneratorState) -> dict:
-    """Sync wrapper for async buffer suggestion"""
-    return asyncio.run(suggest_buffers_async(state))
-
-
 def generate_buffers_node(state: PolygonGeneratorState) -> dict:
     """
     Generate buffer polygons for points using user-provided radii
-    (This doesn't need async as it's pure computation)
+    (Pure computation - no async needed)
 
     Args:
         state: Current workflow state
@@ -98,8 +94,8 @@ def generate_buffers_node(state: PolygonGeneratorState) -> dict:
     """
     print("Node: Generating buffers...")
 
-    locations_with_points = state["locations_with_points"]
-    buffer_decisions = state["buffer_decisions"]
+    locations_with_points = state.locations_with_points
+    buffer_decisions = state.buffer_decisions
 
     buffered_geometries = []
 
@@ -117,11 +113,11 @@ def generate_buffers_node(state: PolygonGeneratorState) -> dict:
                 "source": "generated",
                 "radius_km": radius,
             })
-            print(f"  ✓ {name}: Buffer generated ({radius} km)")
+            print(f"  [+] {name}: Buffer generated ({radius} km)")
         except Exception as e:
-            print(f"  ❌ {name}: Buffer generation failed - {e}")
+            print(f"  [ERROR] {name}: Buffer generation failed - {e}")
 
     return {
-        "locations_with_polygons": state["locations_with_polygons"] + buffered_geometries,
+        "locations_with_polygons": state.locations_with_polygons + buffered_geometries,
         "current_step": "buffers_generated",
     }
