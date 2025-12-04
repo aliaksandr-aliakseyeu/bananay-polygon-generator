@@ -1,9 +1,7 @@
 """
-Merged: Parse query and validate intent in ONE API call
-Replaces: intent_async.py + parser_async.py
+Parse query and validate intent in ONE API call
 """
 
-import asyncio
 from src.orchestrator.state import PolygonGeneratorState
 from src.llm_agents_async import create_async_agents
 
@@ -19,9 +17,9 @@ def _get_async_agents():
     return _agents_cache
 
 
-async def parse_and_validate_async(state: PolygonGeneratorState) -> dict:
+async def parse_and_validate_node(state: PolygonGeneratorState) -> dict:
     """
-    Parse query and validate intent in ONE API call
+    Parse query and validate intent in ONE API call (ASYNC)
 
     Extracts and normalizes:
     - Location names (with spelling correction)
@@ -40,18 +38,15 @@ async def parse_and_validate_async(state: PolygonGeneratorState) -> dict:
     """
     print("Node: Parsing and validating query (async)...")
 
-    query = state["user_query"]
+    query = state.user_query
     parser, _, _, _ = _get_async_agents()
 
     try:
-        # ONE API call to parse the query
         parsed = await parser.parse(query)
 
-        # Check if locations were found
         locations = parsed.get("locations", [])
 
         if locations:
-            # Valid polygon request with locations
             return {
                 "is_polygon_request": True,
                 "clarification_needed": None,
@@ -61,7 +56,6 @@ async def parse_and_validate_async(state: PolygonGeneratorState) -> dict:
                 "current_step": "query_parsed",
             }
         else:
-            # No locations found - need clarification
             return {
                 "is_polygon_request": False,
                 "clarification_needed": (
@@ -72,15 +66,9 @@ async def parse_and_validate_async(state: PolygonGeneratorState) -> dict:
             }
 
     except Exception as e:
-        # Error during parsing
         return {
             "is_polygon_request": False,
             "clarification_needed": f"Error understanding query: {str(e)}",
             "current_step": "needs_clarification",
             "errors": [str(e)],
         }
-
-
-def parse_and_validate_node(state: PolygonGeneratorState) -> dict:
-    """Sync wrapper for async parse and validate"""
-    return asyncio.run(parse_and_validate_async(state))

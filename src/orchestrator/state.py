@@ -2,32 +2,35 @@
 State definition for polygon generation workflow
 """
 
-from typing import TypedDict, Annotated
-import operator
+from typing import Optional, Any
+from pydantic import BaseModel, Field
 
 
-class PolygonGeneratorState(TypedDict):
+class PolygonGeneratorState(BaseModel):
     """
-    State for polygon generation workflow
+    State for polygon generation workflow (Pydantic BaseModel)
     """
 
     user_query: str
-    is_polygon_request: bool
-    clarification_needed: str | None
-    locations: list[str]
-    context: dict
-    language: str
-    geocoding_results: dict
-    selected_locations: dict
-    locations_with_polygons: list[dict]
-    locations_with_points: list[dict]
-    buffer_decisions: dict
-    needs_user_input: bool
-    final_geometries: list
-    final_polygon: dict | None
-    current_step: str
-    errors: Annotated[list[str], operator.add]
-    warnings: Annotated[list[str], operator.add]
+    is_polygon_request: bool = False
+    clarification_needed: Optional[str] = None
+    locations: list[str] = Field(default_factory=list)
+    context: dict[str, Any] = Field(default_factory=dict)
+    language: str = "unknown"
+    geocoding_results: dict[str, Any] = Field(default_factory=dict)
+    selected_locations: dict[str, Any] = Field(default_factory=dict)
+    locations_with_polygons: list[dict] = Field(default_factory=list)
+    locations_with_points: list[dict] = Field(default_factory=list)
+    buffer_decisions: dict[str, float] = Field(default_factory=dict)
+    needs_user_input: bool = False
+    final_geometries: list = Field(default_factory=list)
+    final_polygon: Optional[dict] = None
+    current_step: str = "start"
+    errors: list[str] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
+
+    class Config:
+        arbitrary_types_allowed = True
 
 
 def create_initial_state(user_query: str) -> PolygonGeneratorState:
@@ -38,24 +41,6 @@ def create_initial_state(user_query: str) -> PolygonGeneratorState:
         user_query: User's natural language query
 
     Returns:
-        Initial state dict with default values
+        Initial state object with default values
     """
-    return {
-        "user_query": user_query,
-        "is_polygon_request": False,
-        "clarification_needed": None,
-        "locations": [],
-        "context": {},
-        "language": "unknown",
-        "geocoding_results": {},
-        "selected_locations": {},
-        "locations_with_polygons": [],
-        "locations_with_points": [],
-        "buffer_decisions": {},
-        "needs_user_input": False,
-        "final_geometries": [],
-        "final_polygon": None,
-        "current_step": "start",
-        "errors": [],
-        "warnings": [],
-    }
+    return PolygonGeneratorState(user_query=user_query)

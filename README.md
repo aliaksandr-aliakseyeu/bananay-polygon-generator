@@ -35,8 +35,8 @@ Output: GeoJSON polygon combining all these areas
 ## Technology Stack
 
 - **Frontend:** Streamlit
-- **LLM Orchestration:** LangGraph + LangChain
-- **LLM:** OpenAI GPT-4-turbo
+- **LLM Orchestration:** LangGraph
+- **LLM:** OpenAI GPT-5-nano
 - **Geocoding:** Nominatim (OpenStreetMap)
 - **Geometry:** Shapely
 - **Maps:** Folium + Leaflet
@@ -76,35 +76,6 @@ poetry run streamlit run app.py
 
 Open your browser at: **http://localhost:8501**
 
-## Project Structure
-
-```
-polygon-generator/
-├── app.py                        # Main Streamlit UI
-├── src/
-│   ├── config.py                 # Configuration management
-│   ├── geocoding.py              # Nominatim/Overpass API clients
-│   ├── geometry.py               # Shapely geometry operations
-│   ├── llm_agents_async.py       # Async OpenAI agents
-│   └── orchestrator/             # LangGraph workflow orchestration
-│       ├── __init__.py           # Public API exports
-│       ├── interface.py          # Clean API for external use
-│       ├── graph.py              # LangGraph workflow definition
-│       ├── state.py              # State management
-│       ├── routing.py            # Conditional routing logic
-│       └── nodes/                # Workflow nodes
-│           ├── base.py                      # Base node interface
-│           ├── parse_and_validate_async.py  # Parse & validate (merged)
-│           ├── geocoding.py                 # Location geocoding
-│           ├── disambiguation_async.py      # AI result selection (parallel)
-│           ├── boundaries.py                # OSM boundary fetching
-│           ├── buffers_async.py             # Buffer generation (parallel)
-│           ├── validation_async.py          # Result validation
-│           └── merge.py                     # Geometry merging
-├── pyproject.toml                # Poetry dependencies
-├── .env.example                  # Environment variables template
-└── README.md                     # This file
-```
 
 ## How It Works
 
@@ -162,10 +133,12 @@ Add your API key to `.env` file (see Installation step 4)
 
 ### Slow processing
 This is normal! AI + geocoding takes time:
-- Query parsing & validation: 1 second (optimized - merged nodes)
-- Geocoding: 1 second per location (rate limit)
-- AI disambiguation: 1 second (parallel processing)
-- **Total: ~4-6 seconds for 3-5 locations** (50% faster with async!)
+- Query parsing & validation: 5-10 seconds (AI call)
+- Geocoding: 1 second per location (Nominatim rate limit)
+- AI disambiguation: 10-20 seconds (parallel processing)
+- AI buffer suggestions: 10-15 seconds (if needed)
+- AI validation: 5-10 seconds
+- **Total: ~30-60 seconds for 3-5 locations** (depends on query complexity and AI response time)
 
 ## License
 

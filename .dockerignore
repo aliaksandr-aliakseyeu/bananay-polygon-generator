@@ -1,0 +1,81 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+dist/
+build/
+*.egg
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Virtual environments
+venv/
+env/
+ENV/
+.venv
+
+# Poetry
+.poetry/
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Environment files (should be provided at runtime)
+.env
+.env.*
+!.env.example
+
+# Git
+.git/
+.gitignore
+
+# Documentation (not needed in runtime)
+*.md
+!README.md
+
+# Tests
+tests/
+*.test.py
+test_*.py
+
+# Logs
+*.log
+logs/
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+
+# Backups
+*.bak
+*.backup
+api_keys_backup.txt
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+
+# GeoJSON test outputs
+*.geojson
+
+# Scripts (if they're only for local dev)
+# Uncomment if you don't need scripts in production
+# scripts/
+
+# Other
+.cache/
+

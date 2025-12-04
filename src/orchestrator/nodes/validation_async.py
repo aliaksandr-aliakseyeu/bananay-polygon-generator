@@ -3,7 +3,6 @@ Async Validation node
 Validate results using LLM
 """
 
-import asyncio
 from src.orchestrator.state import PolygonGeneratorState
 from src.llm_agents_async import create_async_agents
 
@@ -19,9 +18,9 @@ def _get_async_agents():
     return _agents_cache
 
 
-async def validate_results_async(state: PolygonGeneratorState) -> dict:
+async def validate_results_node(state: PolygonGeneratorState) -> dict:
     """
-    Use LLM to validate that geocoding results make sense
+    Use LLM to validate that geocoding results make sense (ASYNC)
 
     Args:
         state: Current workflow state
@@ -34,8 +33,8 @@ async def validate_results_async(state: PolygonGeneratorState) -> dict:
     _, _, validator, _ = _get_async_agents()
 
     try:
-        if "selected_locations" not in state or not state["selected_locations"]:
-            print("  ⚠️ No selected_locations in state, skipping validation")
+        if not state.selected_locations:
+            print("  [!] No selected_locations in state, skipping validation")
             return {
                 "warnings": [],
                 "current_step": "results_validated",
@@ -43,14 +42,14 @@ async def validate_results_async(state: PolygonGeneratorState) -> dict:
 
         geocoded_locations = [
             {"query": name, "result": result}
-            for name, result in state["selected_locations"].items()
+            for name, result in state.selected_locations.items()
         ]
 
         validation = await validator.validate(
-            state["user_query"],
+            state.user_query,
             {
-                "locations": state["locations"],
-                "context": state["context"],
+                "locations": state.locations,
+                "context": state.context,
             },
             geocoded_locations,
         )
@@ -64,13 +63,8 @@ async def validate_results_async(state: PolygonGeneratorState) -> dict:
         }
 
     except Exception as e:
-        print(f"  ⚠️ Validation error: {e}")
+        print(f"  [!] Validation error: {e}")
         return {
             "warnings": ["Validation step encountered an error"],
             "current_step": "results_validated",
         }
-
-
-def validate_results_node(state: PolygonGeneratorState) -> dict:
-    """Sync wrapper for async validation"""
-    return asyncio.run(validate_results_async(state))

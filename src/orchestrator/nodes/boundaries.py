@@ -12,14 +12,14 @@ def fetch_boundaries_node(state: PolygonGeneratorState) -> dict:
     Separate locations into: with_polygons and with_points
 
     Args:
-        state: Current workflow state
+        state: Current workflow state (Pydantic BaseModel)
 
     Returns:
         State updates with boundary data
     """
     print("Node: Fetching boundaries...")
 
-    selected_locations = state["selected_locations"]
+    selected_locations = state.selected_locations
 
     locations_with_polygons = []
     locations_with_points = []

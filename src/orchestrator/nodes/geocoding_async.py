@@ -1,15 +1,14 @@
 """
-Geocoding node
-Geocode locations using Nominatim
+Geocode locations using Nominatim with rate limiting
 """
 
 from src.orchestrator.state import PolygonGeneratorState
-from src.geocoding import geocode_location
+from src.geocoding import geocode_location_async
 
 
-def geocode_locations_node(state: PolygonGeneratorState) -> dict:
+async def geocode_locations_node(state: PolygonGeneratorState) -> dict:
     """
-    Geocode all extracted locations
+    Geocode all extracted locations asynchronously (ASYNC)
 
     Args:
         state: Current workflow state
@@ -17,10 +16,10 @@ def geocode_locations_node(state: PolygonGeneratorState) -> dict:
     Returns:
         State updates with geocoding results
     """
-    print("Node: Geocoding locations...")
+    print("Node: Geocoding locations (async)...")
 
-    locations = state["locations"]
-    context = state["context"]
+    locations = state.locations
+    context = state.context
 
     if not locations:
         return {
@@ -38,15 +37,17 @@ def geocode_locations_node(state: PolygonGeneratorState) -> dict:
             search_query += f", {context['country']}"
 
         try:
-            results = geocode_location(search_query, limit=15)
+            results = await geocode_location_async(search_query, limit=15)
 
             if results:
                 geocoding_results[location] = results
+                print(f"  [+] {location}: {len(results)} results found")
             else:
                 geocoding_results[location] = []
+                print(f"  [!] {location}: No results found")
 
         except Exception as e:
-            print(f"  Error geocoding {location}: {e}")
+            print(f"  [ERROR] Error geocoding {location}: {e}")
             geocoding_results[location] = []
 
     return {

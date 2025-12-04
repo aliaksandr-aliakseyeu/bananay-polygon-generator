@@ -1,17 +1,58 @@
 """
 Async LLM Agents for parallel API calls
+OpenAI 2.x with Pydantic Structured Outputs
 """
 
-from typing import List, Dict, Optional, Any
+from typing import List, Dict, Optional, Any, Type, TypeVar
 import asyncio
+import json
 from openai import AsyncOpenAI
+from pydantic import BaseModel, Field
 from src.config import config
 from src.geocoding import GeocodingResult
-import json
+
+T = TypeVar('T', bound=BaseModel)
+
+
+class LocationContext(BaseModel):
+    """Context information for location query"""
+    city: Optional[str] = Field(None, description="City name if mentioned or implied")
+    country: Optional[str] = Field(None, description="Country if mentioned or implied")
+    region: Optional[str] = Field(None, description="Region if mentioned")
+
+
+class ParsedQuery(BaseModel):
+    """Structured output for query parser"""
+    locations: List[str] = Field(description="List of extracted location names")
+    context: LocationContext = Field(description="Geographic context")
+    language: str = Field(description="Detected language code (en, ru, etc)")
+    confidence: float = Field(ge=0.0, le=1.0, description="Confidence score")
+
+
+class DisambiguationResult(BaseModel):
+    """Structured output for disambiguation"""
+    best_index: int = Field(ge=0, description="Index of the best matching result")
+    reason: str = Field(description="Explanation for the choice")
+
+
+class ValidationResult(BaseModel):
+    """Structured output for validation"""
+    is_valid: bool = Field(description="Whether results are valid")
+    warnings: List[str] = Field(default_factory=list, description="List of warnings")
+    suggestions: List[str] = Field(default_factory=list, description="List of suggestions")
+
+
+class BufferSuggestion(BaseModel):
+    """Structured output for buffer radius suggestion"""
+    radius_km: float = Field(gt=0, description="Suggested radius in kilometers")
+    reasoning: str = Field(description="Explanation for the suggested radius")
 
 
 class AsyncLLMClient:
-    """Async OpenAI client wrapper"""
+    """
+    Async OpenAI client wrapper with Pydantic Structured Outputs
+    Compatible with OpenAI 2.x
+    """
 
     def __init__(self):
         if not config.OPENAI_API_KEY:
@@ -21,102 +62,139 @@ class AsyncLLMClient:
         self.client = AsyncOpenAI(api_key=config.OPENAI_API_KEY)
         self.model = config.OPENAI_MODEL
 
-    async def chat(
+    async def chat_structured(
         self,
         messages: List[Dict[str, str]],
-        # temperature: float = 0.3,
-        response_format: Optional[Dict] = None,
-    ) -> str:
+        response_format: Type[T],
+    ) -> T:
         """
-        Send async chat completion request
+        Send async chat completion with Pydantic structured output (OpenAI 2.x)
 
         Args:
             messages: List of message dicts with 'role' and 'content'
-            temperature: Creativity (0-2)
-            response_format: Optional format (e.g., {"type": "json_object"})
+            response_format: Pydantic model class for structured output
 
         Returns:
-            Response content
+            Parsed Pydantic model instance
+
+        Raises:
+            ValueError: If model refuses or returns empty response
         """
-        kwargs = {
-            "model": self.model,
-            "messages": messages,
-            # "temperature": temperature,
-        }
+        response = await self.client.beta.chat.completions.parse(
+            model=self.model,
+            messages=messages,
+            response_format=response_format,
+        )
 
-        if response_format:
-            kwargs["response_format"] = response_format
+        choice = response.choices[0]
 
-        response = await self.client.chat.completions.create(**kwargs)
-        return response.choices[0].message.content
+        if choice.message.refusal:
+            raise ValueError(f"Model refused to respond: {choice.message.refusal}")
+
+        if choice.message.parsed is None:
+            raise ValueError("Model returned empty parsed response")
+
+        return choice.message.parsed
+
+    # async def chat(
+    #     self,
+    #     messages: List[Dict[str, str]],
+    #     response_format: Optional[Dict] = None,
+    # ) -> str:
+    #     """
+    #     Legacy chat method for backward compatibility
+    #     Use chat_structured() for better type safety
+
+    #     Args:
+    #         messages: List of message dicts with 'role' and 'content'
+    #         response_format: Optional format (e.g., {"type": "json_object"})
+
+    #     Returns:
+    #         Response content string
+
+    #     Raises:
+    #         ValueError: If model refuses or returns empty response
+    #     """
+    #     kwargs = {
+    #         "model": self.model,
+    #         "messages": messages,
+    #     }
+
+    #     if response_format:
+    #         kwargs["response_format"] = response_format
+
+    #     response = await self.client.chat.completions.create(**kwargs)
+
+    #     choice = response.choices[0]
+
+    #     if choice.message.refusal:
+    #         raise ValueError(f"Model refused to respond: {choice.message.refusal}")
+
+    #     content = choice.message.content
+    #     if content is None:
+    #         raise ValueError("Model returned empty response")
+
+    #     return content
 
 
 class AsyncQueryParserAgent:
-    """Async version of query parser"""
+    """
+    Async query parser with Pydantic structured output
+    Uses OpenAI 2.x Structured Outputs for guaranteed schema compliance
+    """
 
     def __init__(self, llm_client: AsyncLLMClient):
         self.llm = llm_client
 
     async def parse(self, user_query: str) -> Dict[str, Any]:
         """
-        Parse natural language query asynchronously
+        Parse natural language query asynchronously with structured output
 
         Args:
             user_query: Natural language text
 
         Returns:
-            Dict with locations, context, language
+            Dict with locations, context, language (for backward compatibility)
         """
-        system_prompt = """You are a geographic query parser. Extract and normalize location \
-        information from user queries.
+        system_prompt = """
+            You are a geographic query parser. Extract and normalize location
+            information from user queries.
 
-        Your task:
-        1. Extract all location names mentioned
-        2. **FIX spelling and grammar errors** in location names
-        3. Normalize capitalization (proper names should be capitalized)
-        4. Detect context (nearby city, country, region)
-        5. Detect language (en, ru)
+            Your task:
+            1. Extract all location names mentioned
+            2. **FIX spelling and grammar errors** in location names
+            3. Normalize capitalization (proper names should be capitalized)
+            4. Detect context (nearby city, country, region)
+            5. Detect language (en, ru)
 
-        IMPORTANT - Spelling correction:
-        - "Совецкий район" → "Советский район" (fix typo: ц→т)
-        - "валерьяново" → "Валерьяново" (capitalize proper name)
-        - "минский район" → "Минский район" (capitalize)
-        - "уручье" → "Уручье" (capitalize district name)
+            IMPORTANT - Spelling correction:
+            - "Совецкий район" → "Советский район" (fix typo: ц→т)
+            - "валерьяново" → "Валерьяново" (capitalize proper name)
+            - "минский район" → "Минский район" (capitalize)
+            - "уручье" → "Уручье" (capitalize district name)
 
-        CRITICAL - Context vs Location:
-        - "в минском районе" = CONTEXT (in Minsk district), NOT a location!
-        - "валерьяново в минском районе" = location: "Валерьяново", context: "Минский район"
-        - "а.г." or "аг" = village prefix (агрогородок), remove from location name
-        - Prepositions (в, на, около, рядом с) indicate CONTEXT, not separate locations
+            CRITICAL - Context vs Location:
+            - "в минском районе" = CONTEXT (in Minsk district), NOT a location!
+            - "валерьяново в минском районе" = location: "Валерьяново", context: "Минский район"
+            - "а.г." or "аг" = village prefix (агрогородок), remove from location name
+            - Prepositions (в, на, около, рядом с) indicate CONTEXT, not separate locations
 
-        Return JSON format:
-        {
-        "locations": ["location1", "location2", ...],
-        "context": {
-            "city": "city name if mentioned or implied",
-            "country": "country if mentioned or implied",
-            "region": "region if mentioned"
-        },
-        "language": "ru",
-        "confidence": 0.9
-        }
+            Examples:
+            - "Я хочу полигон Уручье Минска + Колодищи" →
+            locations: ["Уручье", "Колодищи"], context: {"city": "Minsk", "country": "Belarus"}
 
-        Examples:
-        - "Я хочу полигон Уручье Минска + Колодищи" →
-        locations: ["Уручье", "Колодищи"], context: {"city": "Minsk", "country": "Belarus"}
+            - "Советский район и а.г. валерьяново в минском районе, аг королев стан в минском районе" →
+            locations: ["Советский район", "Валерьяново", "Королев Стан"]
+            context: {"region": "Минский район", "country": "Belarus"}
+            (NOTE: "в минском районе" is context, NOT a 4th location!)
 
-        - "Советский район и а.г. валерьяново в минском районе, аг королев стан в минском районе" →
-        locations: ["Советский район", "Валерьяново", "Королев Стан"]
-        context: {"region": "Минский район", "country": "Belarus"}
-        (NOTE: "в минском районе" is context, NOT a 4th location!)
+            - "combine districts: uruchye, kolodishchi near Minsk" →
+            locations: ["Uruchye", "Kolodishchi"], context: {"city": "Minsk"}
 
-        - "combine districts: uruchye, kolodishchi near Minsk" →
-        locations: ["Uruchye", "Kolodishchi"], context: {"city": "Minsk"}
-
-        Be smart about context:
-        - "Уручье" without city → likely Minsk (it's a well-known district)
-        - "Колодищи" → likely near Minsk, Belarus
-        - Always include country if you can infer it
+            Be smart about context:
+            - "Уручье" without city → likely Minsk (it's a well-known district)
+            - "Колодищи" → likely near Minsk, Belarus
+            - Always include country if you can infer it
         """
 
         messages = [
@@ -124,17 +202,28 @@ class AsyncQueryParserAgent:
             {"role": "user", "content": user_query},
         ]
 
-        response = await self.llm.chat(
+        parsed = await self.llm.chat_structured(
             messages,
-            # temperature=0.3,
-            response_format={"type": "json_object"},
+            response_format=ParsedQuery,
         )
 
-        return json.loads(response)
+        return {
+            "locations": parsed.locations,
+            "context": {
+                "city": parsed.context.city,
+                "country": parsed.context.country,
+                "region": parsed.context.region,
+            },
+            "language": parsed.language,
+            "confidence": parsed.confidence,
+        }
 
 
 class AsyncDisambiguationAgent:
-    """Async version of disambiguation agent"""
+    """
+    Async disambiguation agent with Pydantic structured output
+    Uses OpenAI 2.x Structured Outputs for guaranteed schema compliance
+    """
 
     def __init__(self, llm_client: AsyncLLMClient):
         self.llm = llm_client
@@ -146,7 +235,7 @@ class AsyncDisambiguationAgent:
         context: Dict[str, str],
     ) -> int:
         """
-        Select best geocoding result asynchronously
+        Select best geocoding result asynchronously with structured output
 
         Args:
             location_query: Original location query
@@ -156,27 +245,25 @@ class AsyncDisambiguationAgent:
         Returns:
             Index of best result
         """
-        system_prompt = """You are a geocoding result disambiguator.
-Given a location query and multiple results, pick the most relevant one.
+        system_prompt = """
+            You are a geocoding result disambiguator.
+            Given a location query and multiple results, pick the most relevant one.
 
-CRITICAL: Prioritize location types in this order:
-1. administrative, boundary, place (cities, villages, settlements, агрогородки) - HIGHEST PRIORITY
-2. station (railway/bus stations) - MEDIUM PRIORITY
-3. service, amenity, highway (streets, bus stops, services) - LOWEST PRIORITY
+            CRITICAL: Prioritize location types in this order:
+            1. administrative, boundary, place (cities, villages, settlements, агрогородки) - HIGHEST PRIORITY
+            2. station (railway/bus stations) - MEDIUM PRIORITY
+            3. service, amenity, highway (streets, bus stops, services) - LOWEST PRIORITY
 
-Then consider secondary factors:
-- Context (city, country, region)
-- Importance score (only if types are equal)
-- Geographic proximity to context
+            Then consider secondary factors:
+            - Context (city, country, region)
+            - Importance score (only if types are equal)
+            - Geographic proximity to context
 
-EXAMPLE: If you see "Колодищи":
-- Option A: station (importance: 0.32) ❌
-- Option B: administrative (importance: 0.27) ✅ CHOOSE THIS - it's a settlement!
+            EXAMPLE: If you see "Колодищи":
+            - Option A: station (importance: 0.32) ❌
+            - Option B: administrative (importance: 0.27) ✅ CHOOSE THIS - it's a settlement!
+        """
 
-Return JSON: {"best_index": 0, "reason": "explanation"}
-"""
-
-        # Build candidates description
         candidates = []
         for i, result in enumerate(geocoding_results):
             candidates.append(
@@ -186,28 +273,27 @@ Return JSON: {"best_index": 0, "reason": "explanation"}
                 f"coords: {result.lat:.4f}, {result.lon:.4f})"
             )
 
-        user_message = f"""Location query: "{location_query}"
-Context: {json.dumps(context)}
+        user_message = f"""
+            Location query: "{location_query}"
+            Context: {json.dumps(context)}
 
-Candidates:
-{chr(10).join(candidates)}
+            Candidates:
+            {chr(10).join(candidates)}
 
-Which result best matches the query considering the context?
-"""
+            Which result best matches the query considering the context?
+        """
 
         messages = [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_message},
         ]
 
-        response = await self.llm.chat(
+        result = await self.llm.chat_structured(
             messages,
-            # temperature=0.2,
-            response_format={"type": "json_object"},
+            response_format=DisambiguationResult,
         )
 
-        result = json.loads(response)
-        return int(result.get("best_index", 0))
+        return result.best_index
 
     async def select_best_batch(
         self,
@@ -232,7 +318,10 @@ Which result best matches the query considering the context?
 
 
 class AsyncValidationAgent:
-    """Async version of validation agent"""
+    """
+    Async validation agent with Pydantic structured output
+    Uses OpenAI 2.x Structured Outputs for guaranteed schema compliance
+    """
 
     def __init__(self, llm_client: AsyncLLMClient):
         self.llm = llm_client
@@ -244,7 +333,7 @@ class AsyncValidationAgent:
         geocoded_locations: List[Dict],
     ) -> Dict[str, Any]:
         """
-        Validate geocoding results asynchronously
+        Validate geocoding results asynchronously with structured output
 
         Args:
             user_query: Original query
@@ -252,23 +341,18 @@ class AsyncValidationAgent:
             geocoded_locations: Geocoding results
 
         Returns:
-            Dict with warnings and suggestions
+            Dict with is_valid, warnings and suggestions (for backward compatibility)
         """
-        system_prompt = """You are a geocoding result validator.
-Check if geocoding results match user intent.
+        system_prompt = """
+            You are a geocoding result validator.
+            Check if geocoding results match user intent.
 
-Look for:
-1. Wrong country/region
-2. Wrong type of location (e.g., street instead of district)
-3. Unexpected locations
-4. Missing expected locations
-
-Return JSON: {
-  "is_valid": true/false,
-  "warnings": ["warning1", ...],
-  "suggestions": ["suggestion1", ...]
-}
-"""
+            Look for:
+            1. Wrong country/region
+            2. Wrong type of location (e.g., street instead of district)
+            3. Unexpected locations
+            4. Missing expected locations
+        """
 
         geocoded_summary = []
         for loc in geocoded_locations:
@@ -278,32 +362,39 @@ Return JSON: {
             except Exception:
                 geocoded_summary.append(f"- {loc['query']} → [Error]")
 
-        user_message = f"""Original query: "{user_query}"
-Parsed locations: {parsed_data.get('locations', [])}
-Context: {parsed_data.get('context', {})}
+        user_message = f"""
+            Original query: "{user_query}"
+            Parsed locations: {parsed_data.get('locations', [])}
+            Context: {parsed_data.get('context', {})}
 
-Geocoded results:
-{chr(10).join(geocoded_summary)}
+            Geocoded results:
+            {chr(10).join(geocoded_summary)}
 
-Are these results reasonable? Any warnings or suggestions?
-"""
+            Are these results reasonable? Any warnings or suggestions?
+        """
 
         messages = [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_message},
         ]
 
-        response = await self.llm.chat(
+        result = await self.llm.chat_structured(
             messages,
-            # temperature=0.3,
-            response_format={"type": "json_object"},
+            response_format=ValidationResult,
         )
 
-        return json.loads(response)
+        return {
+            "is_valid": result.is_valid,
+            "warnings": result.warnings,
+            "suggestions": result.suggestions,
+        }
 
 
 class AsyncBufferSuggestionAgent:
-    """Async version of buffer suggestion agent"""
+    """
+    Async buffer suggestion agent with Pydantic structured output
+    Uses OpenAI 2.x Structured Outputs for guaranteed schema compliance
+    """
 
     def __init__(self, llm_client: AsyncLLMClient):
         self.llm = llm_client
@@ -312,7 +403,7 @@ class AsyncBufferSuggestionAgent:
         self, location_name: str, place_type: str, context: Dict[str, str]
     ) -> float:
         """
-        Suggest buffer radius asynchronously
+        Suggest buffer radius asynchronously with structured output
 
         Args:
             location_name: Name of location
@@ -322,39 +413,37 @@ class AsyncBufferSuggestionAgent:
         Returns:
             Suggested radius in kilometers
         """
-        system_prompt = """You are a geographic buffer radius suggester.
-Suggest appropriate buffer radius in kilometers based on location type.
+        system_prompt = """
+            You are a geographic buffer radius suggester.
+            Suggest appropriate buffer radius in kilometers based on location type.
 
-Guidelines:
-- hamlet, village, locality: 0.5-2 km
-- neighbourhood, suburb, residential: 1-3 km
-- town, city_district: 2-5 km
-- city: 5-15 km
-- region, county: 10-50 km
+            Guidelines:
+            - hamlet, village, locality: 0.5-2 km
+            - neighbourhood, suburb, residential: 1-3 km
+            - town, city_district: 2-5 km
+            - city: 5-15 km
+            - region, county: 10-50 km
+        """
 
-Return JSON: {"radius_km": 2.0, "reasoning": "explanation"}
-"""
+        user_message = f"""
+            Location: {location_name}
+            Type: {place_type}
+            Context: {json.dumps(context)}
 
-        user_message = f"""Location: {location_name}
-Type: {place_type}
-Context: {json.dumps(context)}
-
-What buffer radius (in km) would you suggest?
-"""
+            What buffer radius (in km) would you suggest?
+        """
 
         messages = [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_message},
         ]
 
-        response = await self.llm.chat(
+        result = await self.llm.chat_structured(
             messages,
-            # temperature=0.2,
-            response_format={"type": "json_object"},
+            response_format=BufferSuggestion,
         )
 
-        result = json.loads(response)
-        return float(result.get("radius_km", 1.0))
+        return result.radius_km
 
     async def suggest_radius_batch(
         self, locations: List[tuple[str, str, Dict[str, str]]]
@@ -392,15 +481,12 @@ def create_async_agents():
     )
 
 
-# Convenience function for sync code
-def run_async(coro):
-    """Run async coroutine in sync context"""
-    try:
-        asyncio.get_running_loop()
-        # Loop running (e.g., in Jupyter), use nest_asyncio
-        import nest_asyncio
-        nest_asyncio.apply()
-        return asyncio.run(coro)
-    except RuntimeError:
-        # No loop running, create new one
-        return asyncio.run(coro)
+# def run_async(coro):
+#     """Run async coroutine in sync context"""
+#     try:
+#         asyncio.get_running_loop()
+#         import nest_asyncio
+#         nest_asyncio.apply()
+#         return asyncio.run(coro)
+#     except RuntimeError:
+#         return asyncio.run(coro)

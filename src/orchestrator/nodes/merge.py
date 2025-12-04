@@ -15,14 +15,14 @@ def merge_geometries_node(state: PolygonGeneratorState) -> dict:
     Merge all geometries into final polygon(s) using union
 
     Args:
-        state: Current workflow state
+        state: Current workflow state (Pydantic BaseModel)
 
     Returns:
         State updates with final polygon (or list of polygons if disconnected)
     """
     print("Node: Merging geometries...")
 
-    locations_with_polygons = state["locations_with_polygons"]
+    locations_with_polygons = state.locations_with_polygons
 
     if not locations_with_polygons:
         return {
@@ -64,15 +64,15 @@ def merge_geometries_node(state: PolygonGeneratorState) -> dict:
             },
         }
 
-        print(f"  ✓ Merged {len(geometries)} geometries")
-        print(f"  ✓ Total area: {total_area_km2:.2f} km²")
+        print(f"  [+] Merged {len(geometries)} geometries")
+        print(f"  [+] Total area: {total_area_km2:.2f} km^2")
 
         if is_disconnected:
-            print(f"  ⚠️ Result: {num_regions} SEPARATE (disconnected) regions")
+            print(f"  [!] Result: {num_regions} SEPARATE (disconnected) regions")
             for i, meta in enumerate(regions_metadata, 1):
-                print(f"     Region {i}: {meta['area_km2']:.2f} km²")
+                print(f"     Region {i}: {meta['area_km2']:.2f} km^2")
         else:
-            print("  ✓ Result: 1 connected region")
+            print("  [+] Result: 1 connected region")
 
         warnings = []
         if is_disconnected:

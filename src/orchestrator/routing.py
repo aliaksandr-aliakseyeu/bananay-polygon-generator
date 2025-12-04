@@ -1,15 +1,15 @@
 """
 Routing logic for conditional edges
 Make routing decisions
+
+LangGraph 1.0: Functions return node names or END directly (no path_map)
 """
 
-from typing import Literal
+from langgraph.graph import END
 from src.orchestrator.state import PolygonGeneratorState
 
 
-def should_continue_after_intent(
-    state: PolygonGeneratorState,
-) -> Literal["geocode_locations", "end"]:
+def should_continue_after_intent(state: PolygonGeneratorState) -> str:
     """
     Route after parse and validate
 
@@ -17,17 +17,15 @@ def should_continue_after_intent(
         state: Current workflow state
 
     Returns:
-        Next node name or "end"
+        Next node name or END
     """
-    if state.get("is_polygon_request", False):
+    if state.is_polygon_request:
         return "geocode_locations"
     else:
-        return "end"
+        return END
 
 
-def should_ask_user(
-    state: PolygonGeneratorState,
-) -> Literal["pause_for_user", "validate_results"]:
+def should_ask_user(state: PolygonGeneratorState) -> str:
     """
     Route after fetching boundaries
     Check if we need user input for buffer radii
@@ -36,9 +34,9 @@ def should_ask_user(
         state: Current workflow state
 
     Returns:
-        "pause_for_user" if user input needed, else "validate_results"
+        END if user input needed, else "validate_results"
     """
-    if state.get("needs_user_input", False):
-        return "pause_for_user"
+    if state.needs_user_input:
+        return END
     else:
         return "validate_results"

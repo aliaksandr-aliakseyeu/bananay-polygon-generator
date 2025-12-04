@@ -1,6 +1,8 @@
 """
 Graph builder and configuration
 Construct and compile LangGraph workflow
+
+LangGraph 1.0: Native async support, no path_map needed
 """
 
 from langgraph.graph import StateGraph, END
@@ -20,25 +22,24 @@ from src.orchestrator.routing import should_continue_after_intent, should_ask_us
 
 def create_polygon_graph():
     """
-    Create and compile the LangGraph workflow
+    Create and compile the LangGraph workflow (ASYNC)
 
     Returns:
         Compiled LangGraph workflow
 
     Graph structure:
-        1. Parse & Validate (merged - ONE API call)
-        2. Geocode Locations
-        3. Disambiguate Results
-        4. Fetch Boundaries
-        5. Suggest Buffers
+        1. Parse & Validate (merged - ONE API call) [ASYNC]
+        2. Geocode Locations [ASYNC]
+        3. Disambiguate Results [ASYNC]
+        4. Fetch Boundaries [SYNC]
+        5. Suggest Buffers [ASYNC]
         6. (Decision: needs user input? -> pause or continue)
-        7. [After user input] Generate Buffers
-        8. Validate Results
-        9. Merge Geometries
+        7. [After user input] Generate Buffers [SYNC]
+        8. Validate Results [ASYNC]
+        9. Merge Geometries [SYNC]
     """
     workflow = StateGraph(PolygonGeneratorState)
 
-    # Merged node: parse_and_validate (replaces validate_intent + parse_query)
     workflow.add_node("parse_and_validate", parse_and_validate_node)
     workflow.add_node("geocode_locations", geocode_locations_node)
     workflow.add_node("disambiguate", disambiguate_node)
@@ -49,11 +50,9 @@ def create_polygon_graph():
 
     workflow.set_entry_point("parse_and_validate")
 
-    # Conditional: After parsing and validation
     workflow.add_conditional_edges(
         "parse_and_validate",
         should_continue_after_intent,
-        {"geocode_locations": "geocode_locations", "end": END},
     )
     workflow.add_edge("geocode_locations", "disambiguate")
     workflow.add_edge("disambiguate", "fetch_boundaries")
@@ -62,10 +61,6 @@ def create_polygon_graph():
     workflow.add_conditional_edges(
         "suggest_buffers",
         should_ask_user,
-        {
-            "pause_for_user": END,
-            "validate_results": "validate_results",
-        },
     )
 
     workflow.add_edge("validate_results", "merge_geometries")
