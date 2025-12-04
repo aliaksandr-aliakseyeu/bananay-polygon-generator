@@ -2,8 +2,6 @@
 Async Buffer operations nodes
 Suggest and generate buffers
 Processes multiple locations in parallel
-
-LangGraph 1.0: Native async support - no sync wrapper needed
 """
 
 from src.orchestrator.state import PolygonGeneratorState
@@ -105,7 +103,7 @@ def generate_buffers_node(state: PolygonGeneratorState) -> dict:
         radius = buffer_decisions.get(name, 1.0)
 
         try:
-            buffer_geom = buffer_point(result.coordinates, radius_km=radius)
+            buffer_geom = buffer_point((result.lon, result.lat), radius_km=radius)
             buffered_geometries.append({
                 "name": f"{name} ({radius}km buffer)",
                 "result": result,

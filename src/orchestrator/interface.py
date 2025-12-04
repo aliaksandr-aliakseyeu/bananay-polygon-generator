@@ -32,7 +32,7 @@ async def process_query(user_query: str) -> PolygonGeneratorState:
 
 
 async def resume_with_buffers(
-    previous_state: PolygonGeneratorState, buffer_decisions: dict[str, float]
+    previous_state: PolygonGeneratorState | dict, buffer_decisions: dict[str, float]
 ) -> PolygonGeneratorState:
     """
     Resume processing after user provides buffer decisions (Phase 2) - ASYNC
@@ -42,13 +42,16 @@ async def resume_with_buffers(
     the polygon generation.
 
     Args:
-        previous_state: State returned from process_query()
+        previous_state: State returned from process_query() (can be dict or PolygonGeneratorState)
         buffer_decisions: Dict mapping location names to buffer radii (km)
                          Example: {"location1": 1.5, "location2": 2.0}
 
     Returns:
         State object with final polygon
     """
+    if isinstance(previous_state, dict):
+        previous_state = PolygonGeneratorState(**previous_state)
+
     resumed_state = previous_state.model_copy(deep=True)
     resumed_state.buffer_decisions = buffer_decisions
     resumed_state.needs_user_input = False

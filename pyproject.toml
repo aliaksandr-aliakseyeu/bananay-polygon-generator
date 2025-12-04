@@ -9,9 +9,9 @@ packages = [{include = "src"}]
 [tool.poetry.dependencies]
 python = "^3.11"
 # Streamlit and UI
-streamlit = "^1.29.0"
-streamlit-folium = "^0.15.1"
-folium = "^0.15.1"
+streamlit = "^1.51.0"
+streamlit-folium = "^0.22.0"
+folium = "^0.18.0"
 
 # LangChain and LLM
 langchain = "^1.1.0"
@@ -47,6 +47,7 @@ pytest = "^7.4.3"
 black = "^23.12.1"
 ruff = "^0.1.9"
 ipython = "^8.19.0"
+pytest-asyncio = "<0.22"
 
 [tool.poetry.extras]
 redis = ["redis"]

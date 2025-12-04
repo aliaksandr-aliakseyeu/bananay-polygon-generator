@@ -1,8 +1,6 @@
 """
 ASYNC Disambiguation node
 Processes multiple locations in parallel
-
-LangGraph 1.0: Native async support - no sync wrapper needed
 """
 
 import asyncio

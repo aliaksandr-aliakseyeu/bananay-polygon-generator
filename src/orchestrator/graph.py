@@ -38,10 +38,8 @@ def create_polygon_graph():
         8. Validate Results [ASYNC]
         9. Merge Geometries [SYNC]
     """
-    # LangGraph 1.0: Pydantic BaseModel as state
     workflow = StateGraph(PolygonGeneratorState)
 
-    # Add nodes (async nodes are supported natively)
     workflow.add_node("parse_and_validate", parse_and_validate_node)
     workflow.add_node("geocode_locations", geocode_locations_node)
     workflow.add_node("disambiguate", disambiguate_node)
@@ -52,7 +50,6 @@ def create_polygon_graph():
 
     workflow.set_entry_point("parse_and_validate")
 
-    # LangGraph 1.0: No path_map needed - routing functions return node names directly
     workflow.add_conditional_edges(
         "parse_and_validate",
         should_continue_after_intent,

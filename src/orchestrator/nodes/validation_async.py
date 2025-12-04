@@ -1,8 +1,6 @@
 """
 Async Validation node
 Validate results using LLM
-
-LangGraph 1.0: Native async support - no sync wrapper needed
 """
 
 from src.orchestrator.state import PolygonGeneratorState
